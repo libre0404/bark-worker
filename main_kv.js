@@ -10,8 +10,9 @@ async function handleRequest(request, env, ctx) {
     const rootPath = env.ROOT_PATH || '/'
     const basicAuth = env.BASIC_AUTH
 
+    const db = new Database(env)
     const {searchParams, pathname} = new URL(request.url)
-    const handler = new Handler(env, { allowNewDevice, allowQueryNums })
+    const handler = new Handler(db, { allowNewDevice, allowQueryNums })
     const realPathname = pathname.replace((new RegExp('^' + rootPath.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"))), '/')
 
     switch (realPathname) {
@@ -59,6 +60,31 @@ async function handleRequest(request, env, ctx) {
                     }else if (contentType && contentType.includes('application/x-www-form-urlencoded')){
                         const formData = await request.formData()
                         formData.forEach((value, key) => {requestBody[key] = value})
+
+                        try {
+                            if (requestBody.title) {
+                                requestBody.title = decodeURIComponent(requestBody.title.replaceAll("\\+","%20"))
+                            }
+                            
+                            if (requestBody.subtitle) {
+                                requestBody.subtitle = decodeURIComponent(requestBody.subtitle.replaceAll("\\+","%20"))
+                            }
+                            
+                            if (requestBody.body) {
+                                requestBody.body = decodeURIComponent(requestBody.body.replaceAll("\\+","%20"))
+                            }
+                        } catch (error) {
+                            return new Response(JSON.stringify({
+                                'code': 500,
+                                'meaasge': `url path parse failed: ${error}`,
+                                'timestamp': util.getTimestamp(),
+                            }), {
+                                status: 500,
+                                headers: {
+                                    'content-type': 'application/json',
+                                }
+                            })
+                        }
                     }else{
                         searchParams.forEach((value, key) => {requestBody[key] = value})
 
@@ -78,6 +104,31 @@ async function handleRequest(request, env, ctx) {
                                 'timestamp': util.getTimestamp(),
                             }), {
                                 status: 404,
+                                headers: {
+                                    'content-type': 'application/json',
+                                }
+                            })
+                        }
+
+                        try {
+                            if (requestBody.title) {
+                                requestBody.title = decodeURIComponent(requestBody.title.replaceAll("\\+","%20"))
+                            }
+                            
+                            if (requestBody.subtitle) {
+                                requestBody.subtitle = decodeURIComponent(requestBody.subtitle.replaceAll("\\+","%20"))
+                            }
+                            
+                            if (requestBody.body) {
+                                requestBody.body = decodeURIComponent(requestBody.body.replaceAll("\\+","%20"))
+                            }
+                        } catch (error) {
+                            return new Response(JSON.stringify({
+                                'code': 500,
+                                'meaasge': `url path parse failed: ${error}`,
+                                'timestamp': util.getTimestamp(),
+                            }), {
+                                status: 500,
                                 headers: {
                                     'content-type': 'application/json',
                                 }
@@ -174,15 +225,14 @@ async function handleRequest(request, env, ctx) {
 }
 
 class Handler {
-    constructor(env, options) {
+    constructor(db, options) {
         this.version = "v2.2.6"
         this.build = "2025-10-25 21:09:29"
         this.arch = "js"
         this.commit = "a5d5365ad2dc362858b39044f05da9e10d3538cf"
         this.allowNewDevice = options.allowNewDevice
         this.allowQueryNums = options.allowQueryNums
-        const db = new Database(env)
-
+        
         this.register = async (parameters) => {
             const deviceToken = parameters.get('devicetoken')
             let key = parameters.get('key')
@@ -337,31 +387,6 @@ class Handler {
             let subtitle = parameters.subtitle || undefined
             let body = parameters.body || undefined
 
-            try {
-                if (title) {
-                    title = decodeURIComponent(title.replaceAll("\\+","%20"))
-                }
-                
-                if (subtitle) {
-                    subtitle = decodeURIComponent(subtitle.replaceAll("\\+","%20"))
-                }
-                
-                if (body) {
-                    body = decodeURIComponent(body.replaceAll("\\+","%20"))
-                }
-            } catch (error) {
-                return new Response(JSON.stringify({
-                    'code': 500,
-                    'meaasge': `url path parse failed: ${error}`,
-                    'timestamp': util.getTimestamp(),
-                }), {
-                    status: 500,
-                    headers: {
-                        'content-type': 'application/json',
-                    }
-                })
-            }
-
             let sound = parameters.sound || undefined
             if (sound) {
                 if (!sound.endsWith('.caf')) {
@@ -372,7 +397,6 @@ class Handler {
             }
 
             const group = parameters.group || undefined
-            
             const call = parameters.call || undefined
             const isArchive = parameters.isArchive || undefined
             const icon = parameters.icon || undefined

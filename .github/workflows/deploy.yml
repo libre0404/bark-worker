@@ -4,18 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      CLOUDFLARE_ACCOUNT_ID:
-        description: "Cloudflare Account ID"
-        default: ""
-        required: true
-        type: string
-      CLOUDFLARE_API_TOKEN:
-        description: "Cloudflare API Token"
-        default: ""
-        required: true
-        type: string
+  workflow_dispatch: # 手动触发依然保留，但优先从 Secret 读取
 
 jobs:
   deploy:
@@ -24,6 +13,11 @@ jobs:
     permissions:
       contents: write
       
+    # 在这里统一定义环境变量，下面的所有 steps 都能自动获取
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -36,40 +30,37 @@ jobs:
         run: npm install -g wrangler
 
       - name: Verify Cloudflare API Token
-        run: |
-          echo "Verifying Cloudflare API Token..."
-          wrangler whoami
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ inputs.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ inputs.CLOUDFLARE_API_TOKEN }}
+        run: wrangler whoami
           
       - name: Check and Create D1 Database
+        id: db_step
         run: |
-          set -x
+          # 获取数据库列表并查找
           DB_LIST=$(wrangler d1 list --json)
-          DB_ID=$(echo $DB_LIST | jq -r '.[] | select(.name == "database-bark") | .uuid')
+          # 注意：这里的名字要和你 wrangler.toml 里的 database_name 一致
+          DB_ID=$(echo $DB_LIST | jq -r '.[] | select(.name == "bark") | .uuid')
       
-          if [ -z "$DB_ID" ]; then
-            CREATE_OUTPUT=$(wrangler d1 create database-bark)
-            DB_ID=$(echo "$CREATE_OUTPUT" | sed -n 's/.*"database_id": "\([a-f0-9-]*\)".*/\1/p')
+          if [ -z "$DB_ID" ] || [ "$DB_ID" == "null" ]; then
+            echo "Creating new D1 database..."
+            CREATE_OUTPUT=$(wrangler d1 create bark)
+            # 提取 UUID
+            DB_ID=$(echo "$CREATE_OUTPUT" | grep "database_id =" | awk -F'"' '{print $2}')
           else
-            echo "Found existing database-bark database"
+            echo "Found existing database-bark database: $DB_ID"
           fi
       
-          echo "Database ID: $DB_ID"
           echo "DB_ID=$DB_ID" >> $GITHUB_ENV
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ inputs.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ inputs.CLOUDFLARE_API_TOKEN }}
 
       - name: Update wrangler.toml
         run: |
-          sed -i 's/"database_id": ".*"/"database_id": "'$DB_ID'"/' wrangler.json
+          # 修正 sed 命令，适配 .toml 格式
+          # 将 wrangler.toml 中的 database_id 替换为刚才获取到的 ID
+          sed -i "s/database_id = \".*\"/database_id = \"$DB_ID\"/" wrangler.toml
+          cat wrangler.toml
 
       - name: Deploy worker
-        uses: cloudflare/wrangler-action@v3.14.1
+        uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ inputs.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ inputs.CLOUDFLARE_ACCOUNT_ID }}
-          command: "deploy"
-          wranglerVersion: "4.16.1"
+          apiToken: ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
